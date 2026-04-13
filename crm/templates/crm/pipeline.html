@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipeline</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 24px;
+            background: #f5f5f5;
+        }
+
+        h1 {
+            margin-bottom: 24px;
+        }
+
+        .pipeline {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+            overflow-x: auto;
+        }
+
+        .column {
+            background: white;
+            border-radius: 8px;
+            padding: 16px;
+            min-width: 270px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            transition: background 0.2s ease, transform 0.2s ease;
+        }
+
+        .column.drag-over {
+            background: #eef6ff;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+        }
+
+        .column-header {
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .column h2 {
+            font-size: 18px;
+            margin: 0 0 8px 0;
+        }
+
+        .column-count {
+            font-size: 14px;
+            color: #555;
+            margin-bottom: 4px;
+        }
+
+        .column-total {
+            font-size: 14px;
+            font-weight: bold;
+            color: #0a7a2f;
+        }
+
+        .cards-container {
+            min-height: 40px;
+        }
+
+        .card {
+            background: #fafafa;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 12px;
+            cursor: grab;
+            transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .card.dragging {
+            opacity: 0.5;
+            transform: rotate(1deg);
+            box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+        }
+
+        .card-title {
+            font-weight: bold;
+            margin-bottom: 6px;
+        }
+
+        .card-company {
+            color: #555;
+            font-size: 14px;
+            margin-bottom: 6px;
+        }
+
+        .card-value {
+            color: #0a7a2f;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .card-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 4px;
+            text-decoration: none;
+            font-size: 13px;
+            background: #e9e9e9;
+            color: #222;
+        }
+
+        .btn:hover {
+            background: #dcdcdc;
+        }
+
+        .empty {
+            color: #888;
+            font-size: 14px;
+            font-style: italic;
+        }
+
+        .empty.hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Pipeline Comercial</h1>
+
+    <div class="pipeline">
+        {% for stage in pipeline_data %}
+            <div class="column" data-stage="{{ stage.key }}">
+                <div class="column-header">
+                    <h2>{{ stage.label }}</h2>
+                    <div class="column-count">
+                        <span class="count-value">{{ stage.count }}</span> oportunidade(s)
+                    </div>
+                    <div class="column-total">
+                        R$ <span class="total-value">{{ stage.total_value }}</span>
+                    </div>
+                </div>
+
+                <div class="cards-container">
+                    {% for deal in stage.deals %}
+                        <div class="card" draggable="true" data-id="{{ deal.id }}" data-value="{{ deal.value|default:0 }}">
+                            <div class="card-title">{{ deal.title }}</div>
+                            <div class="card-company">{{ deal.company.name }}</div>
+                            <div class="card-value">
+                                R$ {{ deal.value|default:"0,00" }}
+                            </div>
+
+                            <div class="card-actions">
+                                <a class="btn" href="{% url 'move_deal_stage' deal.id 'backward' %}">← Voltar</a>
+                                <a class="btn" href="{% url 'move_deal_stage' deal.id 'forward' %}">Avançar →</a>
+                            </div>
+                        </div>
+                    {% empty %}
+                        <div class="empty">Nenhuma oportunidade nesta etapa</div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+
+    <script>
+        let draggedCard = null;
+        let originColumn = null;
+
+        function parseMoney(value) {
+            const number = parseFloat(value);
+            return isNaN(number) ? 0 : number;
+        }
+
+        function formatMoney(value) {
+            return value.toFixed(2);
+        }
+
+        function updateColumnSummary(column, deltaCount, deltaValue) {
+            const countEl = column.querySelector('.count-value');
+            const totalEl = column.querySelector('.total-value');
+
+            const currentCount = parseInt(countEl.textContent, 10) || 0;
+            const currentTotal = parseMoney(totalEl.textContent);
+
+            countEl.textContent = currentCount + deltaCount;
+            totalEl.textContent = formatMoney(currentTotal + deltaValue);
+        }
+
+        function updateEmptyState(column) {
+            const container = column.querySelector('.cards-container');
+            const cards = container.querySelectorAll('.card');
+            let empty = container.querySelector('.empty');
+
+            if (cards.length === 0) {
+                if (!empty) {
+                    empty = document.createElement('div');
+                    empty.className = 'empty';
+                    empty.textContent = 'Nenhuma oportunidade nesta etapa';
+                    container.appendChild(empty);
+                } else {
+                    empty.classList.remove('hidden');
+                }
+            } else if (empty) {
+                empty.classList.add('hidden');
+            }
+        }
+
+        document.querySelectorAll('.card').forEach(card => {
+            card.addEventListener('dragstart', () => {
+                draggedCard = card;
+                originColumn = card.closest('.column');
+                card.classList.add('dragging');
+            });
+
+            card.addEventListener('dragend', () => {
+                card.classList.remove('dragging');
+                document.querySelectorAll('.column').forEach(column => {
+                    column.classList.remove('drag-over');
+                });
+            });
+        });
+
+        document.querySelectorAll('.column').forEach(column => {
+            column.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                column.classList.add('drag-over');
+            });
+
+            column.addEventListener('dragleave', () => {
+                column.classList.remove('drag-over');
+            });
+
+            column.addEventListener('drop', (e) => {
+                e.preventDefault();
+                column.classList.remove('drag-over');
+
+                if (!draggedCard || !originColumn) return;
+                if (originColumn === column) return;
+
+                const newStage = column.dataset.stage;
+                const dealId = draggedCard.dataset.id;
+                const dealValue = parseMoney(draggedCard.dataset.value);
+
+                const targetContainer = column.querySelector('.cards-container');
+                targetContainer.appendChild(draggedCard);
+
+                updateColumnSummary(originColumn, -1, -dealValue);
+                updateColumnSummary(column, 1, dealValue);
+
+                updateEmptyState(originColumn);
+                updateEmptyState(column);
+
+                fetch(`/pipeline/deal/${dealId}/move_to/${newStage}/`)
+                    .catch(() => {
+                        alert('Não foi possível salvar a nova etapa.');
+                    });
+            });
+        });
+    </script>
+</body>
+</html>
